@@ -21,17 +21,16 @@ def helpMessage() {
 
     The typical command for running the pipeline is as follows:
 
-    nextflow run kevinmenden/hybrid-assembly --shortReads '*_R{1,2}.fastq.gz' --longReads 'nano_reads.fastq.gz' --assembler spades  -profile docker
+    nextflow run kevinmenden/hybrid-assembly --shortReads '*_R{1,2}.fastq.gz' --longReads 'nano_reads.fastq.gz' --assembler flye  -profile docker
 
     Mandatory arguments:
-      --assembler                   The assembler pipeline to choose. One of 'spades' | 'canu' | 'masurca'
+      --assembler                   The assembler pipeline to choose. One of 'flye' | 'masurca'
       --shortReads                  The paired short reads
       --longReads                   The long reads
       -profile                      Hardware config to use.
 
     References                      If you want to use a reference genome
       --fasta                       Path to Fasta reference
-      --genome                      Name of iGenomes reference to use
 
     Options:
       --lr_type                     Long read technology. One of 'nanopore' | 'pacbio' . Default: 'nanopore'
@@ -55,15 +54,14 @@ if (params.help){
 }
 
 // Configurable variables
-params.name = false
 params.fasta = false
 params.shortReads = ""
 params.longReads = ""
 params.multiqc_config = "$baseDir/conf/multiqc_config.yaml"
 params.email = false
 params.plaintext_email = false
-params.assembler = "spades"
-params.genomeSize = 0
+params.assembler = "flye"
+params.genomeSize = 3300000000
 params.cont = 'singularity'
 
 multiqc_config = file(params.multiqc_config)
@@ -102,6 +100,13 @@ Channel
         .into { long_reads_qc; long_reads_assembly; long_reads_scaffolding }
 
 
+///*
+// * Create a channel for reference assembly
+// */
+Channel
+        .fromPath( params.fasta )
+        .ifEmpty { exit 1, "Cannot find a reference genome assembly: ${params.fasta}\nNB: Path needs to be enclosed in quotes!" }
+        .into { reference }
 
 // Header log info
 log.info "========================================="
@@ -158,8 +163,7 @@ process get_software_versions {
     echo $workflow.nextflow.version > v_nextflow.txt
     fastqc --version > v_fastqc.txt
     multiqc --version > v_multiqc.txt
-    spades.py --version > v_spades.txt
-    canu --version > v_canu.txt
+    flye --version > v_flye.txt
     quast --version > v_quast.txt
     minimap2 --version > v_minimap.txt
     pilon --version > v_pilon.txt
@@ -216,98 +220,32 @@ process fastqc {
  */
 
 /**
- * SPAdes assembly workflow
- * 1. Hybrid assembly with SPAdes
- * 2. quast for assesment
+ * FLYE assembly workflow
  */
-if (params.assembler == 'spades') {
-
-    // Create assembly with SPAdes
-    process spades {
-        tag "$name"
-        publishDir "${params.outdir}/spades", mode: 'copy'
-
-        input:
-        file fasta from fasta
-        set val(name), file(sreads) from short_reads_assembly
-        file lreads from long_reads_assembly
-
-        output:
-        file "scaffolds.fasta" into assembly_results_scaffolds
-        file "contigs.fasta" into assembly_results_contigs
-        file "*" into spades_results
-
-        script:
-        ref_genome = params.fasta ? "--trusted-contigs $fasta" : ''
-        lr = (params.lr_type == 'nanopore') ? '--nanopore' : '--pacbio'
-        kmers = params.kmers
-        """
-        spades.py -o "spades_results" -t ${task.cpus} \\
-        -m $params.mem_spades \\
-        -1 ${sreads[0]} -2 ${sreads[1]} \\
-        $lr $lreads $ref_genome \\
-        -k $kmers
-        mv spades_results/scaffolds.fasta scaffolds.fasta
-        mv spades_results/contigs.fasta contigs.fasta
-        """
-
-    }
-
-    // Assess assembly with quast
-    process quast_spades {
-        publishDir "${params.outdir}", mode: 'copy'
-
-        input:
-        file scaffolds from assembly_results_scaffolds
-        file contigs from assembly_results_contigs
-
-        output:
-        file "*" into quast_results
-
-        script:
-        """
-        quast $contigs $scaffolds
-        """
-
-    }
-
-}
-
-/**
- * Canu assembly workflow
- * 1. assembly with Canu
- * 2. map short reads with minimap2
- * 3. polish assembly with pilon
- * 4. quast for assesment
- */
-if (params.assembler == 'canu') {
+if (params.assembler == 'flye') {
     if (params.genomeSize == 0){
-        log.error "No genome size specified. Necessary for Canu assembly workflow"
+        log.error "No genome size specified. Necessary for Flye assembly workflow"
         exit 1
     }
-    // Create assembly with Canu
-    process canu {
+    // Create assembly with FLYE
+    process flye {
         tag "${lreads.baseName}"
-        publishDir "${params.outdir}/canu", mode: 'copy'
+        publishDir "${params.outdir}/flye", mode: 'copy'
 
         input:
         file lreads from long_reads_assembly
 
         output:
-        file "*contigs.fasta" into assembly_result_canu
-        file "*" into canu_results
+        file "*assembly.fasta" into assembly_result_flye
+        file "*" into flye_results
 
         script:
         """
-        canu \\
-        -p ${lreads.baseName} genomeSize=$params.genomeSize -nanopore-raw $lreads gnuplotTested=true \\
-        correctedErrorRate=$params.correctedErrorRate \\
-        rawErrorRate=$params.rawErrorRate \\
-        minReadLength=$params.minReadLength \\
-        minOverlapLength=$params.minOverlapLength
+        flye \\
+        --nano-raw $lreads --genomeSize=$params.genomeSize --out-dir=${params.outdir}/flye --keep-haplotypes
         """
     }
-    assembly_result_canu.into{ assembly_mapping; assembly_pilon }
+    assembly_result_flye.into{ assembly_mapping; assembly_pilon }
 
     // Map short reads to assembly with minimap2
     process minimap {
@@ -333,7 +271,7 @@ if (params.assembler == 'canu') {
 
     // Polish assembly with pilon
     process pilon {
-        tag "canu_assembly"
+        tag "flye_assembly"
         publishDir "${params.outdir}/pilon", mode: 'copy'
 
         input:
@@ -341,8 +279,8 @@ if (params.assembler == 'canu') {
         file assembly from assembly_pilon
 
         output:
-        file "*" into assembly_results_scaffolds
-
+        file "*" into assembly_results_pilon
+        file "*.pilon.fasta" into assembly_results_scaffolds
         script:
         """
         samtools index $sr_bam
@@ -350,13 +288,32 @@ if (params.assembler == 'canu') {
         """
 
     }
+	
+   // Scaffold assembly with Masurca scaffolding script
+    process masurca {
+        tag "flye_assembly"
+        publishDir "${params.outdir}/masurca_scaffolds", mode: 'copy'
 
-    // Quast for canu pipeline
-    process quast_canu {
+        input:
+        file assembly from assembly_results_scaffolds
+        file r_assembly from reference
+
+        output:
+        file "*" into masurca_scaffolds
+
+        script:
+        """
+        masurca_scaffolding.sh -r $r_assembly -q $assembly -nb=on
+        """
+
+    }
+
+    // Quast for flye pipeline
+    process quast_flye {
         publishDir "${params.outdir}", mode: 'copy'
 
         input:
-        file scaffolds from assembly_results_scaffolds
+        file scaffolds from masurca_scaffolds
 
         output:
         file "*" into quast_results
@@ -396,7 +353,7 @@ if (params.assembler == 'masurca') {
         --isize $params.insert_size --stdev $params.insert_stdv \\
         --lr $lreads --lr_type $params.lr_type \\
         --genome_size $params.masurca_genomesize \\
-        $cg $hc -p ${task.cpus}
+        $cg $hc -p ${task.cpus} --FLYE_ASSEMBLY=1
 
         masurca masurca_config.txt
 
