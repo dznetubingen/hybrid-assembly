@@ -6,10 +6,9 @@ channels:
   - conda-forge
 dependencies:
   - blast=2.5.0=hc0b0e79_3
-  - canu=1.4=1
   - circos=0.69.6=4
   - fastqc=0.11.8=1
-  - flye=2.4.1=py27he860b03_0
+  - flye
   - glimmerhmm=3.0.4=h2d50403_2
   - gnuplot=5.0.3=4
   - java-jdk=8.0.92=1
@@ -56,7 +55,6 @@ dependencies:
   - quast=5.0.2=py27pl526ha92aebf_0
   - samtools=1.9=h8571acd_11
   - simplejson=3.8.1=py27_0
-  - spades=3.13.0=0
   - colormath=3.0.0=py_2
   - cryptography=2.6.1=py27h9d9f1b6_0
   - libgcc=7.2.0=h69d50b8_2
