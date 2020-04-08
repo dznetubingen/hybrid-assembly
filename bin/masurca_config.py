@@ -66,6 +66,7 @@ CLOSE_GAPS=%(close_gaps)s
 NUM_THREADS = %(cores)s
 JF_SIZE = %(jf_size)s
 SOAP_ASSEMBLY=0
+FLYE_ASSEMBLY=1
 END
 
 """ % globals()
