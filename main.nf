@@ -290,7 +290,7 @@ if (params.assembler == 'flye') {
     }
 	
    // Scaffold assembly with Masurca scaffolding script
-    process masurca {
+    process masurca_scaffolding {
         tag "flye_assembly"
         publishDir "${params.outdir}/masurca_scaffolds", mode: 'copy'
 
